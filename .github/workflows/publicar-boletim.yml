@@ -1,0 +1,52 @@
+# .github/workflows/publicar-boletim.yml
+#
+# Publica o boletim sempre que uma planilha nova for enviada para dados/.
+# Também pode ser disparado manualmente na aba Actions ("Run workflow").
+
+name: Publicar boletim
+
+on:
+  push:
+    paths:
+      - "dados/**.xlsx"
+      - "scripts/build_boletim.py"
+      - ".github/workflows/publicar-boletim.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install openpyxl
+
+      - name: Gerar boletim
+        run: |
+          mkdir -p site
+          python scripts/build_boletim.py dados site/index.html
+
+      - name: Publicar no GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
