@@ -317,9 +317,9 @@ html = f"""<!DOCTYPE html>
   }}
   * {{ box-sizing:border-box; margin:0; }}
   html {{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }}
-  body {{ font-family:'Source Serif 4', Georgia, serif; color:var(--tinta); background:#E6E9E4;
+  body {{ font-family:'Source Serif 4', 'Cambria', Georgia, serif; color:var(--tinta); background:#E6E9E4;
          font-size:11.5pt; line-height:1.62; }}
-  .arch {{ font-family:'Archivo', 'Segoe UI', sans-serif; }}
+  .arch {{ font-family:'Archivo', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }}
 
   .pagina {{ background:#fff; width:210mm; min-height:297mm; margin:10mm auto; padding:16mm 17mm 14mm; display:flex; flex-direction:column;
              box-shadow:0 2px 18px rgba(28,36,32,.14); position:relative; }}
@@ -420,12 +420,17 @@ html = f"""<!DOCTYPE html>
   .btn-print:hover {{ background:var(--mata-escuro); }}
   @page {{ size:A4; margin:0; }}
   @media print {{
-    body {{ background:#fff; font-size:11.5pt; }}
-    .pagina {{ margin:0; box-shadow:none; width:210mm; height:296mm; min-height:auto;
-               overflow:hidden; page-break-after:always; break-after:page; }}
+    body {{ background:#fff; font-size:10.9pt; }}
+    .pagina {{ margin:0; box-shadow:none; width:210mm; height:auto; min-height:290mm;
+               overflow:visible; page-break-after:always; break-after:page;
+               padding:14mm 16mm 10mm; }}
     .pagina:last-child {{ page-break-after:auto; break-after:auto; }}
     .btn-print {{ display:none; }}
     table, tr, td, th, .fr, .frente, .pend, .bl {{ page-break-inside:avoid; break-inside:avoid; }}
+    .t-nota {{ font-size:8.8pt; line-height:1.4; }}
+    .subtitulo {{ font-size:9.4pt; }}
+    .frente-obs, .fr-l {{ line-height:1.45; }}
+    td {{ padding-top:1.6mm; padding-bottom:1.6mm; }}
   }}
   @media screen and (max-width:820px) {{ .pagina {{ width:auto; min-height:auto; padding:8mm 6mm; }} .frentes {{ grid-template-columns:1fr; }} .kpis {{ flex-wrap:wrap; }} .kpi {{ min-width:28%; }} }}
 </style>
