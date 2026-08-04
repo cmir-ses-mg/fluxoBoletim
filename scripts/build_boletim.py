@@ -5,7 +5,7 @@ Lê a Base Consolidada (xlsx) e produz um boletim.html autocontido, pronto
 para impressão em A4 (Ctrl+P) ou publicação em página estática.
 Uso: python build_boletim.py [caminho_do_xlsx] [saida.html]
 """
-import sys, datetime
+import sys, datetime, unicodedata
 from collections import defaultdict, Counter
 import openpyxl
 
@@ -46,13 +46,72 @@ for aba in ("Base Consolidada", "Atualizações do Plano"):
     if aba not in wb.sheetnames:
         sys.exit(f"ERRO: a planilha não tem a aba '{aba}'. Abas encontradas: {', '.join(wb.sheetnames)}")
 ws = wb["Base Consolidada"]
-if "Valor Pago" not in [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]:
-    sys.exit("ERRO: a aba 'Base Consolidada' não tem a coluna 'Valor Pago' — "
-             "use a versão do consolidado que inclui essa coluna.")
 H = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
-IX = {n: H.index(n) + 1 for n in H}
-def g(r, n):  return str(ws.cell(r, IX[n]).value or "").strip()
-def gv(r, n): return ws.cell(r, IX[n]).value
+
+
+def _chave(s):
+    """Normaliza cabeçalho: sem acento, sem pontuação, minúsculo, espaços colapsados.
+    'Status  pré-repasse ' e 'Status pre repasse' viram a mesma chave."""
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode()
+    s = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in s)
+    return " ".join(s.lower().split())
+
+
+_HMAP = {}
+for _i, _h in enumerate(H, start=1):
+    if _h is not None and str(_h).strip():
+        _HMAP.setdefault(_chave(_h), _i)
+
+# nome usado no script -> nomes aceitos na planilha (o primeiro encontrado vence)
+ALIASES = {
+    "Valor": ["Valor", "Valor Previsto", "Valor - DMPS", "Valor - Fonte 80"],
+    "Valor Pago": ["Valor Pago", "valor pago"],
+    "Ação": ["Ação", "Ação do Plano"],
+    "N° ação": ["N° ação", "Nº ação", "No ação", "N ação"],
+    "Beneficiário": ["Beneficiário"],
+    "URS": ["URS", "Unidade Regional de Saúde"],
+    "Tipo de Aplicação": ["Tipo de Aplicação"],
+    "Instrumento de execução do recurso": ["Instrumento de execução do recurso", "Instrumento"],
+    "Status do pagamento": ["Status do pagamento"],
+    "Status do Repasse": ["Status do Repasse"],
+    "Status pré-repasse": ["Status pré-repasse", "Status Obras (pré-repasse)",
+                           "Status de Obras (pré-repasse)", "Status de obras",
+                           "Status de custeio (pré-repasse)"],
+    "Status de equipamentos (pré-repasse)": ["Status de equipamentos (pré-repasse)"],
+    "Status de celebração de convênio (pré-repasse)": ["Status de celebração de convênio (pré-repasse)"],
+    "SEI-OBRAS": ["SEI-OBRAS", "SEI OBRAS"],
+}
+
+IX = {}
+for _canon, _ops in ALIASES.items():
+    for _op in _ops:
+        if _chave(_op) in _HMAP:
+            IX[_canon] = _HMAP[_chave(_op)]
+            break
+
+OBRIGATORIAS = ["Valor", "Valor Pago", "Beneficiário", "URS", "N° ação", "Tipo de Aplicação",
+                "Instrumento de execução do recurso", "Status do pagamento", "Status do Repasse",
+                "Status pré-repasse", "Status de equipamentos (pré-repasse)",
+                "Status de celebração de convênio (pré-repasse)"]
+_faltando = [c for c in OBRIGATORIAS if c not in IX]
+if _faltando:
+    sys.exit("ERRO: não encontrei estas colunas na aba 'Base Consolidada':\n  - "
+             + "\n  - ".join(_faltando)
+             + "\n\nColunas existentes na planilha:\n  "
+             + "\n  ".join(str(h) for h in H if h)
+             + "\n\nRenomeie a coluna na planilha ou acrescente o nome em ALIASES, no script.")
+
+for _canon in ALIASES:
+    if _canon in IX and str(H[IX[_canon] - 1]).strip() != _canon:
+        print(f"[info] coluna '{H[IX[_canon]-1]}' reconhecida como '{_canon}'")
+
+
+def g(r, n):
+    return str(ws.cell(r, IX[n]).value or "").strip() if n in IX else ""
+
+
+def gv(r, n):
+    return ws.cell(r, IX[n]).value if n in IX else None
 
 rows = range(2, ws.max_row + 1)
 OBRAS_ACOES = (1, 2, 6)
@@ -262,7 +321,7 @@ html = f"""<!DOCTYPE html>
          font-size:11.5pt; line-height:1.62; }}
   .arch {{ font-family:'Archivo', 'Segoe UI', sans-serif; }}
 
-  .pagina {{ background:#fff; width:210mm; min-height:297mm; margin:10mm auto; padding:16mm 17mm 14mm;
+  .pagina {{ background:#fff; width:210mm; min-height:297mm; margin:10mm auto; padding:16mm 17mm 14mm; display:flex; flex-direction:column;
              box-shadow:0 2px 18px rgba(28,36,32,.14); position:relative; }}
 
   /* ── assinatura: o fio do rio (divisor mata→barro) ── */
@@ -275,10 +334,10 @@ html = f"""<!DOCTYPE html>
   .titulo {{ font-family:'Archivo'; font-weight:800; font-stretch:87%; font-size:24pt; line-height:1.04;
              letter-spacing:-.01em; color:var(--mata-escuro); margin:5mm 0 1.5mm; }}
   .titulo em {{ font-style:normal; color:var(--rio); }}
-  .subtitulo {{ font-family:'Archivo'; font-size:10.5pt; font-weight:500; color:var(--cinza); margin-bottom:4mm; }}
+  .subtitulo {{ font-family:'Archivo'; font-size:10.5pt; font-weight:500; color:var(--cinza); margin-bottom:3mm; }}
 
   /* ── seções ── */
-  .sec {{ margin-top:5.5mm; }}
+  .sec {{ margin-top:4.6mm; }}
   .sec-eyebrow {{ font-family:'Archivo'; font-size:8.5pt; font-weight:700; letter-spacing:.16em;
                   text-transform:uppercase; color:var(--mata); display:flex; align-items:center; gap:8px; margin-bottom:3.5mm; }}
   .sec-eyebrow::after {{ content:''; flex:1; height:1px; background:var(--fio); }}
@@ -333,7 +392,7 @@ html = f"""<!DOCTYPE html>
   .frentes {{ display:grid; grid-template-columns:1fr 1fr; gap:3mm; margin-top:1mm; }}
   .frente {{ background:var(--painel); border-radius:3px; padding:3.2mm 4mm; }}
   .frente-t {{ font-family:'Archivo'; font-weight:700; font-size:10pt; margin-bottom:.5mm; }}
-  .frente-s {{ font-family:'Archivo'; font-size:8pt; color:var(--cinza); margin-bottom:2.5mm; }}
+  .frente-s {{ font-family:'Archivo'; font-size:8pt; color:var(--cinza); margin-bottom:2mm; }}
   .stack {{ display:flex; height:4.5mm; border-radius:2px; overflow:hidden; margin-bottom:2mm; }}
   .st-ok {{ background:#237A52; }} .st-at {{ background:#E0973B; }} .st-cr {{ background:#C2551B; }} .st-vazio {{ background:#DDE3DC; }}
   .frente-leg {{ font-family:'Archivo'; font-size:8.4pt; color:var(--cinza); line-height:1.55; }}
@@ -351,8 +410,8 @@ html = f"""<!DOCTYPE html>
   .pend-m {{ font-family:'Archivo'; font-size:8.6pt; color:var(--cinza); margin-top:1.8mm; padding-left:13mm; line-height:1.6; }}
 
   /* ── rodapé ── */
-  .rodape {{ position:absolute; left:17mm; right:17mm; bottom:9mm; display:flex; justify-content:space-between;
-             font-family:'Archivo'; font-size:7.5pt; color:var(--cinza-claro); border-top:.5px solid var(--fio); padding-top:2mm; }}
+  .rodape {{ margin-top:auto; padding-top:2mm; display:flex; justify-content:space-between;
+             font-family:'Archivo'; font-size:7.5pt; color:var(--cinza-claro); border-top:.5px solid var(--fio); }}
 
   /* ── impressão ── */
   .btn-print {{ position:fixed; top:14px; right:14px; z-index:9; font-family:'Archivo'; font-weight:700; font-size:13px;
@@ -361,12 +420,14 @@ html = f"""<!DOCTYPE html>
   .btn-print:hover {{ background:var(--mata-escuro); }}
   @page {{ size:A4; margin:0; }}
   @media print {{
-    body {{ background:#fff; }}
-    .pagina {{ margin:0; box-shadow:none; width:auto; min-height:auto; page-break-after:always; }}
-    .pagina:last-child {{ page-break-after:auto; }}
+    body {{ background:#fff; font-size:11.5pt; }}
+    .pagina {{ margin:0; box-shadow:none; width:210mm; height:296mm; min-height:auto;
+               overflow:hidden; page-break-after:always; break-after:page; }}
+    .pagina:last-child {{ page-break-after:auto; break-after:auto; }}
     .btn-print {{ display:none; }}
+    table, tr, td, th, .fr, .frente, .pend, .bl {{ page-break-inside:avoid; break-inside:avoid; }}
   }}
-  @media (max-width:820px) {{ .pagina {{ width:auto; min-height:auto; padding:8mm 6mm; }} .frentes {{ grid-template-columns:1fr; }} .kpis {{ flex-wrap:wrap; }} .kpi {{ min-width:28%; }} }}
+  @media screen and (max-width:820px) {{ .pagina {{ width:auto; min-height:auto; padding:8mm 6mm; }} .frentes {{ grid-template-columns:1fr; }} .kpis {{ flex-wrap:wrap; }} .kpi {{ min-width:28%; }} }}
 </style>
 </head>
 <body>
