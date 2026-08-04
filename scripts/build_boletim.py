@@ -410,7 +410,7 @@ html = f"""<!DOCTYPE html>
   .pend-m {{ font-family:'Archivo'; font-size:8.6pt; color:var(--cinza); margin-top:1.8mm; padding-left:13mm; line-height:1.6; }}
 
   /* ── rodapé ── */
-  .rodape {{ margin-top:auto; padding-top:2mm; display:flex; justify-content:space-between;
+  .rodape {{ margin-top:10mm; padding-top:2mm; display:flex; justify-content:space-between;
              font-family:'Archivo'; font-size:7.5pt; color:var(--cinza-claro); border-top:.5px solid var(--fio); }}
 
   /* ── impressão ── */
@@ -418,15 +418,17 @@ html = f"""<!DOCTYPE html>
                 background:var(--mata); color:#fff; border:0; border-radius:22px; padding:10px 18px; cursor:pointer;
                 box-shadow:0 3px 10px rgba(15,61,42,.35); }}
   .btn-print:hover {{ background:var(--mata-escuro); }}
-  @page {{ size:A4; margin:0; }}
+  @page {{ size:A4; margin:15mm 16mm 13mm; }}
   @media print {{
     body {{ background:#fff; font-size:10.9pt; }}
-    .pagina {{ margin:0; box-shadow:none; width:210mm; height:auto; min-height:290mm;
-               overflow:visible; page-break-after:always; break-after:page;
-               padding:14mm 16mm 10mm; }}
-    .pagina:last-child {{ page-break-after:auto; break-after:auto; }}
+    .pagina {{ margin:0; padding:0; box-shadow:none; width:auto; }}
     .btn-print {{ display:none; }}
-    table, tr, td, th, .fr, .frente, .pend, .bl {{ page-break-inside:avoid; break-inside:avoid; }}
+    .eyebrow, .sec-label, .frente, .pend, .rio-wrap, .kpis, tr, thead {{
+      page-break-inside:avoid; break-inside:avoid; }}
+    .sec-eyebrow {{ break-after:avoid; page-break-after:avoid; }}
+    thead {{ display:table-header-group; }}
+    p, .marco, .nota-analise {{ orphans:3; widows:3; }}
+    .rodape {{ margin-top:8mm; }}
     .t-nota {{ font-size:8.8pt; line-height:1.4; }}
     .subtitulo {{ font-size:9.4pt; }}
     .frente-obs, .fr-l {{ line-height:1.45; }}
@@ -517,12 +519,7 @@ html = f"""<!DOCTYPE html>
       </div>
     </div>
   </div>
-  <div class="rodape"><span>Plano de Ação em Saúde do Rio Doce — Boletim de Acompanhamento</span><span>1 / 3</span></div>
-</div>
-
-<!-- ═════════════════ PÁGINA 2 ═════════════════ -->
-<div class="pagina">
-  <div class="sec" style="margin-top:0">
+  <div class="sec">
     <div class="sec-eyebrow arch">Em tramitação regular</div>
     <table>
       <thead><tr><th>Etapa</th><th>Instrumento</th><th class="t-num">Itens</th><th class="t-num">Valor</th><th>Beneficiários</th></tr></thead>
@@ -535,12 +532,7 @@ html = f"""<!DOCTYPE html>
     {pendencias}
   </div>
 
-  <div class="rodape"><span>Plano de Ação em Saúde do Rio Doce — Boletim de Acompanhamento</span><span>2 / 3</span></div>
-</div>
-
-<!-- ═════════════════ PÁGINA 3 ═════════════════ -->
-<div class="pagina">
-  <div class="sec" style="margin-top:0">
+  <div class="sec">
     <div class="sec-eyebrow arch">Pagamentos parciais em aberto</div>
     <table>
       <thead><tr><th>Beneficiário</th><th>Ação</th><th class="t-num">Previsto</th><th class="t-num">Pago</th><th class="t-num">Saldo</th></tr></thead>
@@ -563,8 +555,8 @@ html = f"""<!DOCTYPE html>
   </div>
 
   <div class="rodape">
-    <span>Fonte: Base Consolidada do Plano Rio Doce · Elaboração: CMIR / Subsecretaria de Regionalização — SES-MG</span>
-    <span>3 / 3</span>
+    <span>Fonte: Base Consolidada do Plano Rio Doce</span>
+    <span>Elaboração: CMIR / Subsecretaria de Regionalização — SES-MG</span>
   </div>
 </div>
 </body>
