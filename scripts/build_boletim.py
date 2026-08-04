@@ -265,7 +265,7 @@ pendencias = ""
 if "Aguardando envio dos documentos" in ob_crit:
     c = ob_crit["Aguardando envio dos documentos"]
     pendencias += bloco_pend("Unidades aguardando envio de documentos de obra",
-        sum(c.values()), f"em {len(c)} municípios — a etapa está com as prefeituras",
+        sum(c.values()), f"em {len(c)} municípios",
         lista_munic(c), "rio")
 if "[CAPS] Aguardando PAR da RAPS" in ob_crit:
     c = ob_crit["[CAPS] Aguardando PAR da RAPS"]
