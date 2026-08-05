@@ -37,6 +37,15 @@ def brl(v, dec=2):
     s = f"{v:,.{dec}f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
 
+def w(x):
+    """Largura em % para CSS, limitada a 0–100."""
+    return f"{max(0, min(100, x)):.1f}"
+
+
+def minibar(p):
+    return f"<div class='mini'><div class='mini-fill' style='width:{w(p)}%'></div></div>"
+
+
 def pct(x, dec=1):
     return f"{x:.{dec}f}".replace(".", ",") + "%"
 
@@ -80,6 +89,10 @@ ALIASES = {
     "Status de equipamentos (pré-repasse)": ["Status de equipamentos (pré-repasse)"],
     "Status de celebração de convênio (pré-repasse)": ["Status de celebração de convênio (pré-repasse)"],
     "SEI-OBRAS": ["SEI-OBRAS", "SEI OBRAS"],
+    "Beneficiário Final": ["Beneficiário Final"],
+    "Data da atualização": ["Data da atualização", "Data de atualização", "Data da atualizacao"],
+    "MICRO": ["MICRO", "Microrregião", "Microrregiao", "Micro"],
+    "Status de celebração de contrato (pré-repasse)": ["Status de celebração de contrato (pré-repasse)"],
 }
 
 IX = {}
@@ -167,6 +180,93 @@ for r in rows:
         sc = g(r, "Status de celebração de convênio (pré-repasse)") or "Pendente"
         conv_grupos[sc][0] += 1; conv_grupos[sc][1] += v; conv_grupos[sc][2].append(ben)
 
+# ── por instrumento: previsto, pago, empenhado e etapas em curso ──
+INSTR_ORDEM = ["Resolução - Investimento", "Convênio", "Resolução - Custeio", "Contrato"]
+INSTR_LABEL = {"Resolução - Investimento": "Resolução — Investimento",
+               "Resolução - Custeio": "Resolução — Custeio",
+               "Convênio": "Convênio", "Contrato": "Contrato"}
+INSTR_FINANCIA = {
+    "Resolução - Investimento": "{n_ubs} UBS e {n_caps} CAPS; equipamentos hospitalares, de APS e de consórcios",
+    "Convênio": "obras de maior porte — hospitais, CEAE, polos de fisioterapia e SAE",
+    "Resolução - Custeio": "VIGIAGUA, VIGIAR e VIGIDESASTRES; custeio hospitalar e de UBS",
+    "Contrato": "vigilância de agravos do desastre e monitoramento técnico de obras",
+}
+
+instr_dados = defaultdict(lambda: {"prev": 0.0, "pago": 0.0, "emp": 0.0, "n": 0})
+instr_etapas = defaultdict(lambda: defaultdict(lambda: [0, 0.0, Counter()]))
+CRIT_OBRAS = ("Aguardando envio dos documentos", "[CAPS] Aguardando PAR da RAPS", "Pleito em reavaliação")
+CRIT_CONV = ("Pleito em reavaliação", "Comunicado DCR")
+
+por_micro = defaultdict(lambda: [0.0, 0.0])
+por_benef_mapa = defaultdict(lambda: [0.0, 0.0])
+atualizacoes = []
+hoje_d = datetime.date.today()
+JANELA_DIAS = 7
+
+for r in rows:
+    v = gv(r, "Valor") or 0
+    vp = gv(r, "Valor Pago")
+    sp = g(r, "Status do pagamento")
+    pg = vp if vp is not None else (v if sp == "Liquidado/Pago" else 0)
+    rep = g(r, "Status do Repasse")
+    instr = g(r, "Instrumento de execução do recurso")
+    na = gv(r, "N° ação")
+
+    d = instr_dados[instr]
+    d["prev"] += v
+    d["pago"] += pg
+    d["n"] += 1
+    if rep == "Empenhado":
+        d["emp"] += max(0, v - pg)
+
+    # etapas em curso (o que estava em "Em tramitação regular")
+    etapa = ""
+    if instr == "Resolução - Investimento":
+        if na in OBRAS_ACOES:
+            st = g(r, "Status pré-repasse")
+            if st and st not in CRIT_OBRAS and st != "Análise técnica liberada":
+                etapa = f"Obras — {st}"
+        else:
+            st = g(r, "Status de equipamentos (pré-repasse)")
+            if st and st not in ("Lista validada", "Não se aplica", "-", "Em ajuste", "Aguardando envio da lista"):
+                etapa = f"Equipamentos — {st}"
+    elif instr == "Convênio":
+        st = g(r, "Status de celebração de convênio (pré-repasse)")
+        if st and st not in CRIT_CONV and st != "Assinatura e publicação do convênio":
+            etapa = st
+    elif instr == "Contrato":
+        st = g(r, "Status de celebração de contrato (pré-repasse)")
+        if st and st not in ("-", "Assinado"):
+            etapa = st
+    if etapa:
+        e = instr_etapas[instr][etapa]
+        e[0] += 1
+        e[1] += v
+        e[2][g(r, "Beneficiário")] += 1
+
+    # execução por município (alimenta o mapa)
+    ben = g(r, "Beneficiário")
+    por_benef_mapa[ben][0] += v
+    por_benef_mapa[ben][1] += pg
+
+    # execução por microrregião
+    micro = g(r, "MICRO") or "Não informada"
+    por_micro[micro][0] += v
+    por_micro[micro][1] += pg
+
+    # atualizações recentes
+    dt = gv(r, "Data da atualização")
+    if dt is not None:
+        dd = dt.date() if hasattr(dt, "date") else dt
+        try:
+            if (hoje_d - dd).days <= JANELA_DIAS:
+                atualizacoes.append((dd, g(r, "Beneficiário"), g(r, "Beneficiário Final"),
+                                     g(r, "Tipo de Aplicação"), sp or g(r, "Status do Repasse") or "—"))
+        except TypeError:
+            pass
+
+atualizacoes.sort(key=lambda x: (-x[0].toordinal(), x[1]))
+
 demais = max(0, tot - pago - emp)
 comprometido = pago + emp
 p_pago, p_emp, p_dem = 100*pago/tot, 100*emp/tot, 100*demais/tot
@@ -227,15 +327,134 @@ urs_rows = sorted(((k, v) for k, v in by_urs.items()), key=lambda x: -x[1][0])
 benef_100 = sorted([b for b, (v, p) in benef.items() if v > 0 and p >= v - 0.01])
 n_benef_pagos = sum(1 for b, (v, p) in benef.items() if p > 0)
 
+# ── cards de instrumento (barra + o que financia + etapas em curso) ──
+cards_instr = ""
+for k in INSTR_ORDEM:
+    if k not in instr_dados:
+        continue
+    d = instr_dados[k]
+    prev, pgo, empn = d["prev"], d["pago"], d["emp"]
+    x = 100 * pgo / prev if prev else 0
+    xe = 100 * empn / prev if prev else 0
+    etapas_txt = ""
+    for et, (n, val, munis) in sorted(instr_etapas[k].items(), key=lambda x: -x[1][1]):
+        quem = ", ".join(f"{m} ({q})" if q > 1 else m for m, q in sorted(munis.items()))
+        etapas_txt += (f"<div class='et'><span class='et-n'>{n}</span>"
+                       f"<span class='et-d'>{et}{' · ' + brl(val, 0) if val else ''}"
+                       f"<span class='et-m'>{quem}</span></span></div>")
+    bloco_etapas = (f"<div class='et-wrap'><div class='et-lbl'>Etapas em curso</div>{etapas_txt}</div>"
+                    if etapas_txt else "")
+    cards_instr += f"""<div class='ci'>
+      <div class='ci-top'>
+        <div class='ci-nome'>{INSTR_LABEL.get(k, k)}<span class='ci-n'>{d['n']} ações</span></div>
+        <div class='ci-prev'>{brl(prev, 0)}</div>
+      </div>
+      <div class='ci-bar'>
+        <div class='ci-pago' style='width:{w(x)}%'></div>
+        <div class='ci-emp' style='width:{w(xe)}%'></div>
+      </div>
+      <div class='ci-leg'>
+        <span><i class='dot dp'></i><b>{brl(pgo, 0)}</b> pago ({pct(x, 0)})</span>
+        <span><i class='dot de'></i><b>{brl(empn, 0)}</b> em tramitação</span>
+        <span class='ci-fin'>Financia {INSTR_FINANCIA.get(k, '').format(n_ubs=n_ubs, n_caps=n_caps)}</span>
+      </div>
+      {bloco_etapas}
+    </div>"""
+
+# ── atualizações da semana ──
+linhas_atu = "".join(
+    f"<tr><td class='t-nome'>{ben}</td><td>{bf if bf and bf != '-' else '&mdash;'}</td>"
+    f"<td>{tipo}</td><td>{st}</td><td class='t-num'>{dd.strftime('%d/%m/%Y')}</td></tr>"
+    for dd, ben, bf, tipo, st in atualizacoes)
+
+# ── execução por microrregião ──
+linhas_micro = ""
+for m, (prev, pgo) in sorted(por_micro.items(), key=lambda x: -x[1][0]):
+    x = 100 * pgo / prev if prev else 0
+    linhas_micro += (f"<tr><td class='t-nome'>{m}</td><td class='t-num'>{brl(prev)}</td>"
+                     f"<td class='t-num'>{brl(pgo)}</td>"
+                     f"<td class='t-exec'><span class='t-pct'>{pct(x)}</span>{minibar(x)}</td></tr>")
+
+# ── mapa coroplético: cada município pintado pelo % executado ────────────────
+# Malha oficial do IBGE (recortada só para os municípios do plano).
+MALHA = sys.argv[3] if len(sys.argv) > 3 else os.path.join("assets", "malha_rio_doce.json")
+
+FAIXAS = [(0.001, "#E7EDE8", "Sem pagamento"),
+          (25, "#BFDCCB", "até 25%"),
+          (50, "#7FBB9D", "25% a 50%"),
+          (75, "#3F9A70", "50% a 75%"),
+          (100.01, "#166A47", "acima de 75%")]
+
+
+def cor_faixa(p):
+    for lim, cor, _ in FAIXAS:
+        if p < lim:
+            return cor
+    return FAIXAS[-1][1]
+
+
+def gerar_mapa(caminho, execucao):
+    """SVG com os municípios do plano, pintados pelo percentual executado."""
+    if not os.path.isfile(caminho):
+        print(f"[aviso] malha não encontrada em '{caminho}' — seção regional sai sem o mapa")
+        return ""
+    import json as _json
+    with open(caminho, encoding="utf-8") as fm:
+        gj = _json.load(fm)
+
+    def aneis(feat):
+        g_ = feat["geometry"]
+        if g_["type"] == "Polygon":
+            return g_["coordinates"]
+        return [anel for poly in g_["coordinates"] for anel in poly]
+
+    xs = [x for f in gj["features"] for a in aneis(f) for x, y in a]
+    ys = [y for f in gj["features"] for a in aneis(f) for x, y in a]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    import math as _math
+    kx0 = _math.cos(_math.radians((y0 + y1) / 2))
+    L = 1000
+    pad = 10
+    A = int((L - 2 * pad) * (y1 - y0) / ((x1 - x0) * kx0)) + 2 * pad
+    kx = kx0
+    esc = min((L - 2 * pad) / ((x1 - x0) * kx), (A - 2 * pad) / (y1 - y0))
+    dx = (L - (x1 - x0) * kx * esc) / 2
+    dy = (A - (y1 - y0) * esc) / 2
+
+    def proj(x, y):
+        return (dx + (x - x0) * kx * esc, A - dy - (y - y0) * esc)
+
+    partes = []
+    for f in gj["features"]:
+        nome = f["properties"]["nome"]
+        prev, pgo = execucao.get(nome, (0, 0))
+        p = 100 * pgo / prev if prev else 0
+        d = ""
+        for anel in aneis(f):
+            pts = [proj(x, y) for x, y in anel]
+            d += "M" + " L".join(f"{px:.1f},{py:.1f}" for px, py in pts) + "Z"
+        partes.append(f"<path d='{d}' fill='{cor_faixa(p)}' stroke='#fff' stroke-width='.7'>"
+                      f"<title>{nome}: {pct(p)} executado</title></path>")
+
+    legenda = "".join(
+        f"<span class='mp-item'><i style='background:{cor}'></i>{rot}</span>"
+        for _, cor, rot in FAIXAS)
+    return (f"<div class='mapa'>"
+            f"<svg viewBox='0 0 {L} {A}' xmlns='http://www.w3.org/2000/svg' role='img' "
+            f"aria-label='Execução financeira por município'>{''.join(partes)}</svg>"
+            f"<div class='mp-leg'>{legenda}</div>"
+            f"<div class='mapa-cap'>Execução financeira por município — {len(gj['features'])} municípios do plano. "
+            f"Consórcios e SES não aparecem no mapa por não terem território próprio.</div></div>")
+
+
+mapa_html = gerar_mapa(MALHA, {k: tuple(v) for k, v in por_benef_mapa.items()})
+
 hoje = datetime.date.today()
 MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
 data_ext = f"{hoje.day} de {MESES[hoje.month-1]} de {hoje.year}"
 edicao = f"{hoje.month:02d}/{hoje.year}"
 
 # ── FRAGMENTOS HTML ──────────────────────────────────────────────────────────
-def minibar(p):
-    return (f"<div class='mini'><div class='mini-fill' style='width:{min(100,p):.1f}%'></div></div>")
-
 linhas_instr = "\n".join(
     f"""<tr>
       <td class='t-nome'>{INSTR_LABEL.get(k,k)}</td>
@@ -410,6 +629,38 @@ html = f"""<!DOCTYPE html>
   .pend-m {{ font-family:'Archivo'; font-size:8.6pt; color:var(--cinza); margin-top:1.8mm; padding-left:13mm; line-height:1.6; }}
 
   /* ── rodapé ── */
+  /* cards de instrumento */
+  .ci {{ background:var(--painel); border-radius:3px; padding:3.4mm 4mm; margin-bottom:2.6mm; }}
+  .ci-top {{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:2mm; }}
+  .ci-nome {{ font-family:'Archivo'; font-weight:700; font-size:10.5pt; color:var(--mata-escuro); }}
+  .ci-n {{ font-family:'Archivo'; font-weight:500; font-size:8pt; color:var(--cinza); margin-left:2.5mm; }}
+  .ci-prev {{ font-family:'Archivo'; font-weight:700; font-size:10.5pt; }}
+  .ci-bar {{ display:flex; height:4.6mm; background:#E3E8E2; border-radius:2px; overflow:hidden; }}
+  .ci-pago {{ background:#237A52; }} .ci-emp {{ background:#E0973B; }}
+  .ci-leg {{ display:flex; flex-wrap:wrap; gap:4mm; align-items:baseline; font-family:'Archivo';
+             font-size:8.2pt; color:var(--cinza); margin-top:1.8mm; }}
+  .ci-leg b {{ color:var(--tinta); }}
+  .ci-fin {{ font-family:'Source Serif 4'; font-size:8.8pt; color:var(--cinza); flex:1; min-width:60mm; }}
+  .dot {{ display:inline-block; width:2mm; height:2mm; border-radius:50%; margin-right:1.2mm; }}
+  .dp {{ background:#237A52; }} .de {{ background:#E0973B; }}
+  .et-wrap {{ margin-top:2.4mm; padding-top:2.2mm; border-top:.5px solid var(--fio); }}
+  .et-lbl {{ font-family:'Archivo'; font-size:7.4pt; font-weight:700; letter-spacing:.1em;
+             text-transform:uppercase; color:var(--cinza-claro); margin-bottom:1.4mm; }}
+  .et {{ display:flex; gap:2.6mm; align-items:baseline; padding:.7mm 0; }}
+  .et-n {{ font-family:'Archivo'; font-weight:700; font-size:8.6pt; color:var(--mata);
+           min-width:5mm; text-align:right; }}
+  .et-d {{ font-family:'Archivo'; font-size:8.6pt; color:var(--tinta); }}
+  .et-m {{ display:block; font-family:'Source Serif 4'; font-size:8.4pt; color:var(--cinza); line-height:1.45; }}
+  /* execução regional + mapa */
+  .mapa {{ margin-bottom:4mm; }}
+  .reg-tab {{ width:100%; }}
+  .mapa svg {{ width:100%; height:auto; display:block; }}
+  .mp-leg {{ display:flex; flex-wrap:wrap; gap:2.5mm; justify-content:center; margin-top:1.5mm;
+             font-family:'Archivo'; font-size:7.2pt; color:var(--cinza); }}
+  .mp-item {{ display:flex; align-items:center; gap:1mm; }}
+  .mp-item i {{ width:2.6mm; height:2.6mm; border-radius:1px; border:.3px solid #CBD5CD; display:inline-block; }}
+  .mapa-cap {{ font-family:'Archivo'; font-size:7.4pt; color:var(--cinza-claro); margin-top:1.4mm;
+               line-height:1.4; text-align:center; }}
   .rodape {{ margin-top:10mm; padding-top:2mm; display:flex; justify-content:space-between;
              font-family:'Archivo'; font-size:7.5pt; color:var(--cinza-claro); border-top:.5px solid var(--fio); }}
 
@@ -423,10 +674,12 @@ html = f"""<!DOCTYPE html>
     body {{ background:#fff; font-size:10.9pt; }}
     .pagina {{ margin:0; padding:0; box-shadow:none; width:auto; }}
     .btn-print {{ display:none; }}
-    .eyebrow, .sec-label, .frente, .pend, .rio-wrap, .kpis, tr, thead {{
+    .sec-label, .frente, .pend, .rio-wrap, .kpis, tr, thead, .et, .reg-tab tr {{
       page-break-inside:avoid; break-inside:avoid; }}
     .sec-eyebrow {{ break-after:avoid; page-break-after:avoid; }}
     thead {{ display:table-header-group; }}
+    .ci {{ break-inside:auto; }}
+    .ci-top, .ci-bar, .ci-leg {{ break-inside:avoid; break-after:avoid; }}
     p, .marco, .nota-analise {{ orphans:3; widows:3; }}
     .rodape {{ margin-top:8mm; }}
     .t-nota {{ font-size:8.8pt; line-height:1.4; }}
@@ -448,7 +701,7 @@ html = f"""<!DOCTYPE html>
   </div>
   <hr class="fio-rio">
   <div class="titulo">Plano de Ação em Saúde<br>do <em>Rio Doce</em></div>
-  <div class="subtitulo arch">Acompanhamento da execução — {n_benef} beneficiários · {n_linhas} ações monitoradas · posição de {data_ext}</div>
+  
 
   <div class="sec">
     <div class="sec-eyebrow arch">O curso do recurso</div>
@@ -463,95 +716,35 @@ html = f"""<!DOCTYPE html>
         <div class="l-emp" style="width:{p_emp:.1f}%"><div class="l-t">Empenhado · aguarda pagamento</div><div class="l-v">{brl(emp)}</div></div>
         <div class="l-dem" style="flex:1"><div class="l-t">Em etapas anteriores</div><div class="l-v">{brl(demais)}</div></div>
       </div>
-      <div class="rio-marco">Do total de <b>{brl(tot, 0)}</b> do plano, <b>{brl(comprometido, 0)}</b> ({pct(p_compr)}) já estão pagos ou
-      empenhados. Os pagamentos alcançam <b>{n_benef_pagos} dos {n_benef} beneficiários</b> — {len(benef_100)} deles com repasses
-      integralmente quitados.</div>
-    </div>
+      
   </div>
 
   <div class="sec">
     <div class="sec-eyebrow arch">Execução por instrumento</div>
-    <table>
-      <thead><tr><th>Instrumento</th><th class="t-num">Previsto</th><th class="t-num">Pago</th><th>Execução</th><th>O que financia</th></tr></thead>
-      <tbody>{linhas_instr}</tbody>
-    </table>
+    {cards_instr}
   </div>
 
   <div class="sec">
-    <div class="sec-eyebrow arch">Situação das etapas por frente</div>
-    <div class="frentes">
-      <div class="frente">
-        <div class="frente-t">Obras <span style="color:var(--cinza);font-weight:500">· {n_obras} unidades</span></div>
-        <div class="frente-s">análise pré-repasse, unidade a unidade</div>
-        <div class="stack">
-          <div class="st-at" style="width:{100*ob_anda_n/max(1,n_obras):.0f}%"></div>
-          <div class="st-cr" style="flex:1"></div>
-        </div>
-        <div class="frente-leg"><b>0</b> liberadas · <b>{ob_anda_n}</b> em análise · <b style="color:var(--rio)">{ob_crit_n}</b> pendentes</div>
-      </div>
-      <div class="frente">
-        <div class="frente-t">Equipamentos <span style="color:var(--cinza);font-weight:500">· {equip_ok + equip_at} listas</span></div>
-        <div class="frente-s">validação das listas de aquisição</div>
-        <div class="stack">
-          <div class="st-ok" style="width:{100*equip_ok/max(1,equip_ok+equip_at):.0f}%"></div>
-          <div class="st-at" style="flex:1"></div>
-        </div>
-        <div class="frente-leg"><b>{equip_ok}</b> validadas · <b>{equip_at}</b> em análise · <b>0</b> pendentes</div>
-      </div>
-      <div class="frente">
-        <div class="frente-t">Convênios <span style="color:var(--cinza);font-weight:500">· {conv_total_n} instrumentos</span></div>
-        <div class="frente-s">celebração pré-repasse</div>
-        <div class="stack">
-          <div class="st-at" style="width:{100*conv_tram_n/max(1,conv_total_n):.0f}%"></div>
-          <div class="st-cr" style="flex:1"></div>
-        </div>
-        <div class="frente-leg"><b>0</b> publicados · <b>{conv_tram_n}</b> em tramitação · <b style="color:var(--rio)">{conv_crit_n}</b> em reavaliação</div>
-      </div>
-      <div class="frente">
-        <div class="frente-t">Pagamentos <span style="color:var(--cinza);font-weight:500">· {n_linhas} ações</span></div>
-        <div class="frente-s">todas as ações do plano</div>
-        <div class="stack">
-          <div class="st-ok" style="width:{100*(pg_int+pg_par)/n_linhas:.0f}%"></div>
-          <div class="st-at" style="width:{100*pg_emp/n_linhas:.0f}%"></div>
-          <div class="st-vazio" style="flex:1"></div>
-        </div>
-        <div class="frente-leg"><b>{pg_int}</b> pagas + <b>{pg_par}</b> parciais · <b>{pg_emp}</b> empenhadas · <b>{pg_sem}</b> sem repasse iniciado</div>
-      </div>
-    </div>
-  </div>
-  <div class="sec">
-    <div class="sec-eyebrow arch">Em tramitação regular</div>
-    <table>
-      <thead><tr><th>Etapa</th><th>Instrumento</th><th class="t-num">Itens</th><th class="t-num">Valor</th><th>Beneficiários</th></tr></thead>
-      <tbody>{tramitacao}</tbody>
-    </table>
-  </div>
-
-  <div class="sec" >
     <div class="sec-eyebrow arch" style="color:var(--rio)">Onde o plano precisa de providência</div>
     {pendencias}
   </div>
 
-  <div class="sec">
-    <div class="sec-eyebrow arch">Pagamentos parciais em aberto</div>
+  {f"""<div class="sec">
+    <div class="sec-eyebrow arch">Atualizações da semana</div>
     <table>
-      <thead><tr><th>Beneficiário</th><th>Ação</th><th class="t-num">Previsto</th><th class="t-num">Pago</th><th class="t-num">Saldo</th></tr></thead>
-      <tbody>{linhas_parciais}</tbody>
+      <thead><tr><th>Município</th><th>Beneficiário final</th><th>Tipo de aplicação</th><th>Status</th><th class="t-num">Data</th></tr></thead>
+      <tbody>{linhas_atu}</tbody>
     </table>
-  </div>
-  <div class="sec">
-    <div class="sec-eyebrow arch">Execução por unidade regional de saúde</div>
-    <table>
-      <thead><tr><th>URS</th><th class="t-num">Previsto</th><th class="t-num">Pago</th><th>Execução</th></tr></thead>
-      <tbody>{linhas_urs}</tbody>
-    </table>
-  </div>
+    <p class="nota-analise">{len(atualizacoes)} registro{"s" if len(atualizacoes) != 1 else ""} com atualização nos últimos {JANELA_DIAS} dias.</p>
+  </div>""" if atualizacoes else ""}
 
   <div class="sec">
-    <div class="sec-eyebrow arch">Atualizações do plano</div>
-    <p style="font-size:10.5pt">Foram registradas <b>{alt_fin + alt_and} atualizações</b> de pleito desde o início do plano —
-    <b>{alt_fin} finalizadas</b> e <b>{alt_and} em andamento</b>{": " + "; ".join(alt_and_lista) if alt_and_lista else ""}.
-    Os pleitos em reavaliação de Aimorés, Conselheiro Pena e Ponte Nova vinculam-se às atualizações em curso.</p>
+    <div class="sec-eyebrow arch">Execução regional</div>
+    {mapa_html}
+    <table class="reg-tab">
+      <thead><tr><th>Microrregião de saúde</th><th class="t-num">Previsto</th><th class="t-num">Pago</th><th>Execução</th></tr></thead>
+      <tbody>{linhas_micro}</tbody>
+    </table>
   </div>
 
   <div class="rodape">
