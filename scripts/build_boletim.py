@@ -93,6 +93,8 @@ ALIASES = {
     "Data da atualização": ["Data da atualização", "Data de atualização", "Data da atualizacao"],
     "MICRO": ["MICRO", "Microrregião", "Microrregiao", "Micro"],
     "Status de celebração de contrato (pré-repasse)": ["Status de celebração de contrato (pré-repasse)"],
+    "Status dos Termos de Adesão": ["Status dos Termos de Adesão", "Status dos Termos de Adesao"],
+    "Status de Resolução - alteras": ["Status de Resolução - alteras", "Status de Resolução"],
 }
 
 IX = {}
@@ -192,6 +194,35 @@ INSTR_FINANCIA = {
     "Contrato": "vigilância de agravos do desastre e monitoramento técnico de obras",
 }
 
+def situacao_linha(r):
+    """Situação do processo na linha — a etapa em que a ação está.
+    Não usa o status de pagamento: procura o status próprio do instrumento
+    (obras, equipamentos, celebração) e, se estiver vazio, cai para o termo
+    de adesão ou para a resolução."""
+    instr_ = g(r, "Instrumento de execução do recurso")
+    na_ = gv(r, "N° ação")
+    candidatos = []
+    if instr_ == "Resolução - Investimento":
+        if na_ in OBRAS_ACOES:
+            candidatos = [("Obras", "Status pré-repasse")]
+        else:
+            candidatos = [("Equipamentos", "Status de equipamentos (pré-repasse)")]
+    elif instr_ == "Convênio":
+        candidatos = [("Celebração", "Status de celebração de convênio (pré-repasse)")]
+    elif instr_ == "Contrato":
+        candidatos = [("Celebração", "Status de celebração de contrato (pré-repasse)")]
+    elif instr_ == "Resolução - Custeio":
+        candidatos = [("Pré-repasse", "Status pré-repasse"),
+                      ("Resolução", "Status de Resolução - alteras")]
+    candidatos += [("Termo de adesão", "Status dos Termos de Adesão"),
+                   ("Repasse", "Status do Repasse")]
+    for etapa_, col in candidatos:
+        val = g(r, col)
+        if val and val not in ("-", "–", "Não se aplica"):
+            return (val, etapa_)
+    return ("—", "")
+
+
 instr_dados = defaultdict(lambda: {"prev": 0.0, "pago": 0.0, "emp": 0.0, "n": 0})
 instr_etapas = defaultdict(lambda: defaultdict(lambda: [0, 0.0, Counter()]))
 CRIT_OBRAS = ("Aguardando envio dos documentos", "[CAPS] Aguardando PAR da RAPS", "Pleito em reavaliação")
@@ -261,7 +292,7 @@ for r in rows:
         try:
             if (hoje_d - dd).days <= JANELA_DIAS:
                 atualizacoes.append((dd, g(r, "Beneficiário"), g(r, "Beneficiário Final"),
-                                     g(r, "Tipo de Aplicação"), sp or g(r, "Status do Repasse") or "—"))
+                                     g(r, "Tipo de Aplicação")) + situacao_linha(r))
         except TypeError:
             pass
 
@@ -364,8 +395,10 @@ for k in INSTR_ORDEM:
 # ── atualizações da semana ──
 linhas_atu = "".join(
     f"<tr><td class='t-nome'>{ben}</td><td>{bf if bf and bf != '-' else '&mdash;'}</td>"
-    f"<td>{tipo}</td><td>{st}</td><td class='t-num'>{dd.strftime('%d/%m/%Y')}</td></tr>"
-    for dd, ben, bf, tipo, st in atualizacoes)
+    f"<td>{tipo}</td>"
+    f"<td>{st}{f'<span class=at-et>{etapa_}</span>' if etapa_ else ''}</td>"
+    f"<td class='t-num'>{dd.strftime('%d/%m/%Y')}</td></tr>"
+    for dd, ben, bf, tipo, st, etapa_ in atualizacoes)
 
 # ── execução por microrregião ──
 linhas_micro = ""
@@ -484,7 +517,7 @@ pendencias = ""
 if "Aguardando envio dos documentos" in ob_crit:
     c = ob_crit["Aguardando envio dos documentos"]
     pendencias += bloco_pend("Unidades aguardando envio de documentos de obra",
-        sum(c.values()), f"em {len(c)} municípios",
+        sum(c.values()), f"em {len(c)} municípios — a etapa está com as prefeituras",
         lista_munic(c), "rio")
 if "[CAPS] Aguardando PAR da RAPS" in ob_crit:
     c = ob_crit["[CAPS] Aguardando PAR da RAPS"]
@@ -661,6 +694,8 @@ html = f"""<!DOCTYPE html>
   .mp-item i {{ width:2.6mm; height:2.6mm; border-radius:1px; border:.3px solid #CBD5CD; display:inline-block; }}
   .mapa-cap {{ font-family:'Archivo'; font-size:7.4pt; color:var(--cinza-claro); margin-top:1.4mm;
                line-height:1.4; text-align:center; }}
+  .at-et {{ display:block; font-family:'Archivo'; font-size:7.2pt; color:var(--cinza-claro);
+            text-transform:uppercase; letter-spacing:.06em; margin-top:.4mm; }}
   .rodape {{ margin-top:10mm; padding-top:2mm; display:flex; justify-content:space-between;
              font-family:'Archivo'; font-size:7.5pt; color:var(--cinza-claro); border-top:.5px solid var(--fio); }}
 
@@ -701,7 +736,7 @@ html = f"""<!DOCTYPE html>
   </div>
   <hr class="fio-rio">
   <div class="titulo">Plano de Ação em Saúde<br>do <em>Rio Doce</em></div>
-  
+  <div class="subtitulo arch">Acompanhamento da execução — {n_benef} beneficiários · {n_linhas} ações monitoradas · posição de {data_ext}</div>
 
   <div class="sec">
     <div class="sec-eyebrow arch">O curso do recurso</div>
@@ -716,7 +751,10 @@ html = f"""<!DOCTYPE html>
         <div class="l-emp" style="width:{p_emp:.1f}%"><div class="l-t">Empenhado · aguarda pagamento</div><div class="l-v">{brl(emp)}</div></div>
         <div class="l-dem" style="flex:1"><div class="l-t">Em etapas anteriores</div><div class="l-v">{brl(demais)}</div></div>
       </div>
-      
+      <div class="rio-marco">Do total de <b>{brl(tot, 0)}</b> do plano, <b>{brl(comprometido, 0)}</b> ({pct(p_compr)}) já estão pagos ou
+      empenhados. Os pagamentos alcançam <b>{n_benef_pagos} dos {n_benef} beneficiários</b> — {len(benef_100)} deles com repasses
+      integralmente quitados.</div>
+    </div>
   </div>
 
   <div class="sec">
