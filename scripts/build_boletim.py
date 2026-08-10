@@ -532,7 +532,7 @@ if pleitos_ob or conv_crit_n:
         noms = sum((v[2] for k, v in conv_grupos.items() if k in CONV_CRIT), [])
         partes.append(("Convênio: " if conv_crit_n == 1 else "Convênios: ") + lista_conv(noms))
     munics = " &nbsp;·&nbsp; ".join(partes)
-    pendencias += bloco_pend("Pleitos em reavaliação",
+    pendencias += bloco_pend("Atualizações do Plano",
         sum(pleitos_ob.values()) + conv_crit_n,
         f"objeto/valor em rediscussão — {brl(conv_crit_val, 0)} em convênios aguardando a definição",
         munics, "rio")
@@ -763,7 +763,7 @@ html = f"""<!DOCTYPE html>
   </div>
 
   <div class="sec">
-    <div class="sec-eyebrow arch" style="color:var(--rio)">Onde o plano precisa de providência</div>
+    <div class="sec-eyebrow arch" style="color:var(--rio)">Pendências</div>
     {pendencias}
   </div>
 
