@@ -232,7 +232,7 @@ por_micro = defaultdict(lambda: [0.0, 0.0])
 por_benef_mapa = defaultdict(lambda: [0.0, 0.0])
 atualizacoes = []
 hoje_d = datetime.date.today()
-JANELA_DIAS = 7
+JANELA_DIAS = 7   # dias corridos, contando o dia de hoje
 
 for r in rows:
     v = gv(r, "Valor") or 0
@@ -290,7 +290,9 @@ for r in rows:
     if dt is not None:
         dd = dt.date() if hasattr(dt, "date") else dt
         try:
-            if (hoje_d - dd).days <= JANELA_DIAS:
+            # janela de 7 dias corridos INCLUINDO hoje (hoje-6 ... hoje);
+            # datas futuras (erro de digitação) ficam de fora
+            if 0 <= (hoje_d - dd).days <= JANELA_DIAS - 1:
                 atualizacoes.append((dd, g(r, "Beneficiário"), g(r, "Beneficiário Final"),
                                      g(r, "Tipo de Aplicação")) + situacao_linha(r))
         except TypeError:
